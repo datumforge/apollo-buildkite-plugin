@@ -1,0 +1,81 @@
+#!/bin/bash
+
+set -o nounset # script exits when tries to use undeclared variables == set -u
+set -o pipefail # causes pipelines to retain / set the last non-zero status
+
+# set path 
+export PATH="$PATH:/var/lib/buildkite-agent/.rover/bin"
+
+graph_ref=${BUILDKITE_PLUGIN_APOLLO_GRAPH_REF}
+subgraph=${BUILDKITE_PLUGIN_APOLLO_SUBGRAPH}
+schema=${BUILDKITE_PLUGIN_APOLLO_SCHEMA:-"schema.graphql"}
+ignore_existing=${BUILDKITE_PLUGIN_APOLLO_IGNORE_EXISTING:-false}
+
+debug=${BUILDKITE_PLUGIN_APOLLO_DEBUG:-false}
+
+if [[ "$debug" == "true" ]]; then   
+    set -o xtrace # trace what's executed == set -x (useful for debugging)
+fi
+
+function main() {
+    echo +++ :graphql: schema check
+    
+    # Run the check command with the rover client
+    # Example: rover subgraph check golanglemonades-Team@current --name datum --schema schema.graphql 
+    append_command=""
+    if [[ "$ignore_existing" == "true" ]]; then
+        append_command="--ignore-existing-lint-violations"
+    fi
+
+    check_result=$(rover subgraph check "${graph_ref}" --name "${subgraph}" --schema "${schema}" ${append_command} --format=json) 
+
+    success=$(echo "$check_result" | jq -r '.data.success')
+    errors=$(echo "$check_result" | jq -r '.error')
+    
+    # Parse the results to display on the top of the buildkite job
+    lint_result="$check_result" parse_lint_result
+
+    # Start the annotation
+    echo -e "\`apollo schema check\` results: " | buildkite-agent annotate --context apollo
+
+    # Check for error results, warning results, otherwise it was successful
+    if [[ "$error_results" != "[]" && "$error_results" != "null" ]]; then
+        echo -e  ":graphql: errors found\n" | buildkite-agent annotate --context "apollo" --style "error" --append
+        echo -e  "**Errors**:\n" | buildkite-agent annotate --context "apollo" --append
+        echo -e "$(echo "$error_results" |jq -r '"Level | Field | Line | Message", "---| ---| --- |----", (.[] | "\(.level) | \(.coordinate) | \(.start_line)| \(.message)" )')\n\n" | buildkite-agent annotate --context "apollo" --append 
+        if [[ "$warning_results" != ""&& "$warning_results" != "null" ]]; then
+        echo -e  "**Warnings**:\n" | buildkite-agent annotate --context "apollo" --append
+        echo -e "$(echo "$warning_results" |jq -r '"Level | Field | Line | Message", "---| ---| --- |----", (.[] | "\(.level) | \(.coordinate) | \(.start_line)| \(.message)" )')\n\n" | buildkite-agent annotate --context "apollo" --append 
+        fi
+    elif [[ "$warning_results" != "[]" && "$warning_results" != "null" ]]; then
+        # do not error on warnings
+        echo -e  ":graphql: warnings found\n" | buildkite-agent annotate --context "apollo" --style "warning" --append
+        echo -e  "**Warnings**:\n" | buildkite-agent annotate --context "apollo" --append
+        echo -e "$(echo "$warning_results" |jq -r '"Level | Field | Line | Message", "---| ---| --- |----", (.[] | "\(.level) | \(.coordinate) | \(.start_line)| \(.message)" )')\n\n" | buildkite-agent annotate --context "apollo" --append 
+    else 
+        echo -e  ":graphql: no errors found, congrats!\n"| buildkite-agent annotate --context "apollo" --style "success"  --append
+    fi
+    
+    if [ "${success}" == "false" ]; then
+        echo "Error: ${errors}"
+        exit 1
+    fi
+
+    exit 0
+}
+
+function parse_lint_result () {  
+    warning_results=$(echo "$check_result" | jq '.data.tasks.lint.diagnostics
+        | map(select(.level == "WARNING" ))')
+
+    error_results=$(echo "$check_result" | jq '.data.tasks.lint.diagnostics
+        | map(select(.level == "ERROR" ))')
+
+
+    # Display these in the logs 
+    echo "$warning_results" |jq
+    echo "$error_results" |jq
+}
+
+
+main

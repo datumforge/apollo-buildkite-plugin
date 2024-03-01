@@ -1,14 +1,23 @@
 ---
-name: template-buildkite-plugin
-description: what your plugin does
+name: Apollo
+description: Apollo schema checks with rover
 author: Datum
 requirements:
-  - if you have requirements
+  - bash
+  - curl
 configuration:
   properties:
-    propertyname:
+    graph-ref: # The name of the apollo graph to check
       type: string
-  required: []
-    # - if any properties are required
-  dependencies:
-    dependencyname: [dep]
+    subgraph: # The name of the subgraph to check
+      type: string
+    schema:  # The schema to check, defaults to schema.graphql 
+      type: string
+    ignore-existing: # Ignore existing lint errors and only return new errors
+      type: boolean
+      default: false
+  required:
+    - graph-ref
+    - subgraph
+    - schema
+  additionalProperties: false

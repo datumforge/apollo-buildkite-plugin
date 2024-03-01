@@ -1,0 +1,12 @@
+#!/bin/bash
+
+set -o errexit # script exits when a command fails == set -e
+set -o nounset # script exits when tries to use undeclared variables == set -u
+set -o pipefail # causes pipelines to retain / set the last non-zero status
+
+# Install rover, if not available
+which rover|| (curl -sSL https://rover.apollo.dev/nix/latest | sh -s -- --force)
+
+export PATH="$PATH:/var/lib/buildkite-agent/.rover/bin"
+
+exit 0
